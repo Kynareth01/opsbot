@@ -1,0 +1,72 @@
+name: disk_cleanup
+description: "Automated disk cleanup playbook — frees space by cleaning logs, tmp, and Docker artifacts."
+version: "1.0"
+author: "opsbot"
+tags:
+  - disk
+  - cleanup
+  - maintenance
+
+variables:
+  log_retention_days: 7
+  tmp_retention_days: 3
+  journal_max_size: "500M"
+
+steps:
+  - name: check_disk_usage
+    action: check
+    condition: "disk_percent > 85"
+    on_failure: abort
+
+  - name: report_before
+    action: command
+    command: "df -h / | tail -1 | awk '{print \"Before cleanup: \" $3 \" used / \" $2 \" total (\" $5 \")\"}'"
+
+  - name: clean_old_logs
+    action: command
+    command: "find /var/log -name '*.log' -mtime +{{log_retention_days}} -type f -delete"
+    on_failure: continue
+    retries: 1
+
+  - name: clean_rotated_logs
+    action: command
+    command: "find /var/log -name '*.gz' -mtime +{{log_retention_days}} -type f -delete"
+    on_failure: continue
+
+  - name: clean_tmp
+    action: command
+    command: "find /tmp -type f -mtime +{{tmp_retention_days}} -delete"
+    on_failure: continue
+
+  - name: vacuum_journal
+    action: command
+    command: "journalctl --vacuum-size={{journal_max_size}}"
+    on_failure: continue
+
+  - name: prune_docker_images
+    action: command
+    command: "docker image prune -af 2>/dev/null || true"
+    on_failure: continue
+
+  - name: prune_docker_volumes
+    action: command
+    command: "docker volume prune -f 2>/dev/null || true"
+    on_failure: continue
+
+  - name: compress_logs
+    action: command
+    command: "find /var/log -name '*.log' -size +10M -not -name '*.gz' -exec gzip -9 {} \\; 2>/dev/null"
+    on_failure: continue
+
+  - name: report_after
+    action: command
+    command: "df -h / | tail -1 | awk '{print \"After cleanup: \" $3 \" used / \" $2 \" total (\" $5 \")\"}'"
+
+  - name: check_result
+    action: check
+    condition: "disk_percent > 90"
+
+  - name: alert_if_still_full
+    action: alert
+    command: "Disk still above 90% after cleanup. Manual intervention may be required."
+    condition: "disk_percent > 90"

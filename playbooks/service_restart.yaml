@@ -1,0 +1,55 @@
+name: service_restart
+description: "Restart a failed or unresponsive service with health verification."
+version: "1.0"
+author: "opsbot"
+tags:
+  - service
+  - restart
+  - recovery
+
+variables:
+  service_name: "nginx"
+  health_endpoint: "http://localhost:80"
+  health_timeout: 10
+  max_restart_attempts: 3
+
+steps:
+  - name: check_service_status
+    action: command
+    command: "systemctl is-active {{service_name}} 2>/dev/null || echo 'inactive'"
+
+  - name: get_service_logs
+    action: command
+    command: "journalctl -u {{service_name}} --no-pager -n 20 --since '5 min ago'"
+
+  - name: attempt_restart
+    action: command
+    command: "systemctl restart {{service_name}}"
+    retries: 2
+    on_failure: abort
+
+  - name: wait_for_startup
+    action: wait
+    timeout: 5
+
+  - name: verify_running
+    action: check
+    condition: "service_status == 'active'"
+    on_failure: abort
+
+  - name: health_check
+    action: command
+    command: "curl -sf -o /dev/null -w '%{http_code}' --max-time {{health_timeout}} {{health_endpoint}} || echo 'FAIL'"
+
+  - name: check_health_result
+    action: check
+    condition: "health_status == '200'"
+
+  - name: alert_success
+    action: alert
+    command: "Service {{service_name}} restarted successfully and passing health checks."
+
+  - name: alert_failure
+    action: alert
+    command: "Service {{service_name}} restart FAILED. Manual intervention required."
+    condition: "health_status != '200'"
