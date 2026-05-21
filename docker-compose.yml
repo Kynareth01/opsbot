@@ -1,0 +1,37 @@
+version: "3.8"
+
+services:
+  opsbot:
+    build: .
+    container_name: opsbot
+    restart: unless-stopped
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./playbooks:/app/playbooks
+      - ./opsbot.yaml:/app/opsbot.yaml:ro
+    env_file:
+      - .env
+    environment:
+      - OPSBOT_LOG_LEVEL=INFO
+      - OPSBOT_REMEDIATION_DRY_RUN=false
+    ports:
+      - "8501:8501"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import psutil; print('ok')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  dashboard:
+    build: .
+    container_name: opsbot-dashboard
+    restart: unless-stopped
+    command: ["streamlit", "run", "opsbot/dashboard.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    env_file:
+      - .env
+    ports:
+      - "8502:8501"
