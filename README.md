@@ -123,3 +123,8 @@ docker-compose up -d
 ## License
 
 MIT
+
+
+## Changelog
+
+- v0.1.0 — Initial release
